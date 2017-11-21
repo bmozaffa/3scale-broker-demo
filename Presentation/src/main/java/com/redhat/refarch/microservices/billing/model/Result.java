@@ -10,7 +10,7 @@ public class Result
 
 	public enum Status
 	{
-		SUCCESS, FAILURE
+		SUCCESS, FAILURE, NOT_SET_UP
 	}
 
 	private Status status;

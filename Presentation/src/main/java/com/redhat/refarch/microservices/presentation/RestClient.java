@@ -1,7 +1,11 @@
 package com.redhat.refarch.microservices.presentation;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -13,6 +17,8 @@ import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import javax.ws.rs.client.Client;
@@ -23,8 +29,6 @@ import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import org.apache.http.HttpStatus;
-
 import com.redhat.refarch.microservices.billing.model.Result;
 import com.redhat.refarch.microservices.billing.model.Transaction;
 import com.redhat.refarch.microservices.product.model.Inventory;
@@ -34,22 +38,13 @@ import com.redhat.refarch.microservices.sales.model.Customer;
 import com.redhat.refarch.microservices.sales.model.Order;
 import com.redhat.refarch.microservices.sales.model.Order.Status;
 import com.redhat.refarch.microservices.sales.model.OrderItem;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.UnsupportedEncodingException;
-import java.net.URISyntaxException;
-import java.security.KeyManagementException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLContext;
+import com.sun.org.apache.bcel.internal.generic.RETURN;
 import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
 import org.apache.http.conn.socket.ConnectionSocketFactory;
@@ -57,11 +52,8 @@ import org.apache.http.conn.socket.PlainConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLContextBuilder;
 import org.apache.http.conn.ssl.TrustStrategy;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.util.EntityUtils;
 
 public class RestClient {
 
@@ -385,50 +377,41 @@ public class RestClient {
             request.getSession().setAttribute("itemCount", 0);
         } else if (Result.Status.FAILURE.equals(result.getStatus())) {
             request.setAttribute("errorMessage", "Your credit card was declined");
+        } else if (Result.Status.NOT_SET_UP.equals(result.getStatus())) {
+            request.setAttribute("errorMessage", "BILLING_SERVICE_URL not set");
         }
     }
 
     private static Result processTransaction(HttpServletRequest request) throws HttpErrorException {
 
-        HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//        HttpClient client = createHttpClient_AcceptsUntrustedCerts();
         //URIBuilder uriBuilder = getUriBuilder("/billing/process");
-        Result result = new Result();
-        try {
-            String billingServiceUrl = System.getenv("BILLING_SERVICE_URL");
-            String userKey = System.getenv("USER_KEY");
-            logInfo("billingServiceUrl: " + billingServiceUrl);
-            logInfo("userKey: " + userKey);
-            String uri = billingServiceUrl + "/billing/process?user_key=" + userKey;
-            HttpPost post = new HttpPost(uri);
-
-            Transaction transaction = Utils.getTransaction(request);
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            String jsonStr = gson.toJson(transaction);
-            logInfo(" transaction in Json string: " + jsonStr);
-            StringEntity requestEntity = new StringEntity(
-                    jsonStr,
-                    ContentType.APPLICATION_JSON);
-
-            post.setEntity(requestEntity);
-            HttpResponse response = client.execute(post);
-
-            logInfo("Got transaction result: " + response);
-            if ((response.getStatusLine().getStatusCode() >= HttpStatus.SC_BAD_REQUEST)) {
-                logInfo("Failed to process transactions: " + response.getStatusLine().getReasonPhrase());
-            } else {
-                String responseString = EntityUtils.toString(response.getEntity());
-                logInfo("return from billing, responseString is: " + responseString);
-                result = gson.fromJson(responseString, Result.class);
-
-            }
-
-        } catch (UnsupportedEncodingException ex) {
-            Logger.getLogger(RestClient.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
-            Logger.getLogger(RestClient.class.getName()).log(Level.SEVERE, null, ex);
+        Client client = ClientBuilder.newClient();
+        String billingServiceUrl = System.getenv("BILLING_SERVICE_URL");
+        String userKey = System.getenv("USER_KEY");
+        logInfo("billingServiceUrl: " + billingServiceUrl);
+        logInfo("userKey: " + userKey);
+        if( billingServiceUrl == null )
+        {
+            Result result = new Result();
+            result.setStatus(Result.Status.NOT_SET_UP);
+            return result;
         }
-
-        return result;
+        WebTarget webTarget = client.target(billingServiceUrl).path("/billing").path("/process").queryParam("user_key", userKey);
+        logInfo("Constructed URL as " + webTarget.getUri().toString());
+        Transaction transaction = Utils.getTransaction(request);
+        Entity<Transaction> entity = Entity.entity(transaction, MediaType.APPLICATION_JSON);
+        logInfo("Executing " + webTarget.getUri() + " with " + transaction);
+        Response response = webTarget.request(MediaType.APPLICATION_JSON).post(entity);
+        if (isError(response)) {
+            HttpErrorException exception = new HttpErrorException(response);
+            logInfo("Failed to process transaction: " + exception.getMessage());
+            throw exception;
+        } else {
+            Result result = response.readEntity(Result.class);
+            logInfo("Got transaction result: " + result);
+            return result;
+        }
 
         /*
         WebTarget webTarget = getWebTarget(Service.Billing, "process");
@@ -451,7 +434,6 @@ public class RestClient {
     private static void refundTransaction(long transactionNumber) throws HttpErrorException {
 
         HttpClient client = createHttpClient_AcceptsUntrustedCerts();
-        //URIBuilder uriBuilder = getUriBuilder("/billing/refund" + transactionNumber);
         String billingServiceUrl = System.getenv("BILLING_SERVICE_URL");
         String userKey = System.getenv("USER_KEY");
         logInfo("billingServiceUrl: " + billingServiceUrl);
