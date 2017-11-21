@@ -14,19 +14,10 @@
         <head>
         <body>
             <%
+                java.util.logging.Logger logger = java.util.logging.Logger.getLogger( getClass().getName() );
                 String billingServiceUrl = System.getenv("BILLING_SERVICE_URL");
                 String userKey = System.getenv("USER_KEY");
-                if (billingServiceUrl == null || ("".equals(billingServiceUrl))) {
-            %>
-            <font size="5" color="red">Billing service URL is not found, won't be able to process transaction during check out!</font>
-                <%
-                } else {
-                %>
-            <h2>Billing Service URL: </h2><%= billingServiceUrl%>
-            <h2>User Key: </h2><%= userKey%>
-
-            <%
-                }
+                logger.info( "Sending messages to " + billingServiceUrl + " with " + (userKey == null ? "no" : userKey) + " user key!" );
             %>
 
             <c:choose>
@@ -45,7 +36,8 @@
                 <c:otherwise>
                     <c:choose>
                         <c:when test="${param.purchase}">
-                            <%                                            RestClient.purchase(request);
+                            <%
+                                RestClient.purchase(request);
                             %>
                         </c:when>
                         <c:when test="${param.registration}">
