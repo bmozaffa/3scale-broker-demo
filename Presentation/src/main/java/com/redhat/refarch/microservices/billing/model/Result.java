@@ -4,6 +4,8 @@ import java.util.Date;
 
 import javax.xml.bind.annotation.XmlRootElement;
 
+import org.codehaus.jackson.map.annotate.JsonDeserialize;
+
 @XmlRootElement
 public class Result
 {
@@ -16,6 +18,7 @@ public class Result
 	private Status status;
 	private String name;
 	private Long orderNumber;
+	@JsonDeserialize(using = CustomJsonDateDeserializer.class)
 	private Date transactionDate;
 	private Long transactionNumber;
 
