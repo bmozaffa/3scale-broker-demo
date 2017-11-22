@@ -54,6 +54,7 @@ import org.apache.http.conn.ssl.SSLContextBuilder;
 import org.apache.http.conn.ssl.TrustStrategy;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 
 public class RestClient {
 
@@ -386,7 +387,7 @@ public class RestClient {
 
 //        HttpClient client = createHttpClient_AcceptsUntrustedCerts();
         //URIBuilder uriBuilder = getUriBuilder("/billing/process");
-        Client client = ClientBuilder.newClient();
+        Client client = new ResteasyClientBuilder().disableTrustManager().build();
         String billingServiceUrl = System.getenv("BILLING_SERVICE_URL");
         String userKey = System.getenv("USER_KEY");
         logInfo("billingServiceUrl: " + billingServiceUrl);
